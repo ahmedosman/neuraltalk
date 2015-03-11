@@ -48,7 +48,7 @@ def extract_feats(path_imgs , path_model_def , path_model , batch_size = 1 , WIT
         caffe.set_mode_gpu()
     else:
         caffe.set_mode_cpu()
-    
+    print "loading model:",path_model
     caffe_net = caffe.Classifier(path_model_def , path_model , image_dims = (224,224) , raw_scale = 255,
                             mean = np.array([103.939, 116.779, 123.68]) )
 
@@ -110,8 +110,14 @@ def main(params):
   if not os.path.exists(features_path):
       print "Generating features for the images on disk"
       path_imgs = [ os.path.join(root_path , img) for img in img_names]
-      path_model_def = '/home/ahmedosman/Documents/caffe_model/VGG/deploy_features.prototxt'
-      path_model = '/home/ahmedosman/Documents/caffe_model/VGG/VGG_ILSVRC_16_layers.caffemodel'
+      path_model_def = params['model_def_path']
+      path_model     = params['model_path']
+      
+      if not os.path.exists(path_model_def):
+          raise RuntimeError("Model definition file %s does not exist"%(path_model_def))
+      if not os.path.exists(path_model):
+          raise RuntimeError("Pretrained model weights %s does not exist."%(path_model))
+      
       features = extract_feats(path_imgs, path_model_def, path_model, batch_size = 10, WITH_GPU = False)
       feature_path = os.path.join(root_path , 'vgg_feats.mat')
       print "Saving features to disk %s"%(feature_path)
@@ -171,7 +177,9 @@ if __name__ == "__main__":
   parser.add_argument('checkpoint_path', type=str, help='the input checkpoint')
   parser.add_argument('-r', '--root_path', default='example_images', type=str, help='folder with the images, tasks.txt file, and corresponding vgg_feats.mat file')
   parser.add_argument('-b', '--beam_size', type=int, default=1, help='beam size in inference. 1 indicates greedy per-word max procedure. Good value is approx 20 or so, and more = better.')
-
+  parser.add_argument('--model_def_path' , type=str , help='Path to the VGG_ILSVRC_16_layers model definition file.')
+  parser.add_argument('--model_path' , type=str,  help='Path to VGG_ILSVRC_16_layers pretrained model weight file i.e VGG_ILSVRC_16_layers.caffemodel')
+  
   args = parser.parse_args()
   params = vars(args) # convert to ordinary dict
   print 'parsed parameters:'
