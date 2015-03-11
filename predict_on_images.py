@@ -11,6 +11,7 @@ import scipy.io
 
 from imagernn.solver import Solver
 from imagernn.imagernn_utils import decodeGenerator, eval_split
+import caffe
 
 """
 This script is used to predict sentences for arbitrary images
@@ -26,6 +27,60 @@ Then point this script at the folder and at a checkpoint model you'd
 like to evaluate.
 """
 
+
+def extract_feats(path_imgs , path_model_def , path_model , batch_size = 1 , WITH_GPU = True):
+    '''
+    Function using the caffe python wrapper to extract 4096 from VGG_ILSVRC_16_layers.caffemodel model
+    
+    Inputs:
+    ------
+    path_imgs      : list of the full path of images to be processed 
+    path_model_def : path to the model definition file
+    path_model     : path to the pretrained model weight
+    WItH_GPU       : Use a GPU 
+    
+    Output:
+    -------
+    features           : return the features extracted 
+    '''
+    
+    if WITH_GPU:
+        caffe.set_mode_gpu()
+    else:
+        caffe.set_mode_cpu()
+    
+    caffe_net = caffe.Classifier(path_model_def , path_model , image_dims = (224,224) , raw_scale = 255,
+                            mean = np.array([103.939, 116.779, 123.68]) )
+
+    feats = np.zeros((4096 , len(path_imgs)))
+    
+    for b in range(0 , len(path_imgs) , batch_size):
+        list_imgs = []
+        for i in range(b , b + batch_size ):
+            if i < len(path_imgs):
+                list_imgs.append( np.array(caffe.io.load_image(path_imgs[i]) ) )
+            else:
+                list_imgs.append(list_imgs[-1]) #Appending the last image in order to have a batch of size 10. The extra predictions are removed later..
+                
+        caffe_input = np.asarray([caffe_net.transformer.preprocess('data', in_) for in_ in list_imgs]) #preprocess the images
+       
+        predictions =caffe_net.forward(data = caffe_input)
+        predictions = predictions[caffe_net.outputs[0]].transpose()
+        
+        if i < len(path_imgs):
+            feats[:,b:i+1] = predictions
+            n = i+1
+        else:
+            n = min(batch_size , len(path_imgs) - b) 
+            feats[:,b:b+n] = predictions[:,0:n] #Removing extra predictions, due to the extra last image appending.
+            n += b 
+        print "%d out of %d done....."%(n ,len(path_imgs))
+
+    return feats
+        
+    
+            
+        
 def main(params):
 
   # load the checkpoint
@@ -51,8 +106,23 @@ def main(params):
 
   # load the features for all images
   features_path = os.path.join(root_path, 'vgg_feats.mat')
-  features_struct = scipy.io.loadmat(features_path)
-  features = features_struct['feats'] # this is a 4096 x N numpy array of features
+  
+  if not os.path.exists(features_path):
+      print "Generating features for the images on disk"
+      path_imgs = [ os.path.join(root_path , img) for img in img_names]
+      path_model_def = '/home/ahmedosman/Documents/caffe_model/VGG/deploy_features.prototxt'
+      path_model = '/home/ahmedosman/Documents/caffe_model/VGG/VGG_ILSVRC_16_layers.caffemodel'
+      features = extract_feats(path_imgs, path_model_def, path_model, batch_size = 10, WITH_GPU = False)
+      feature_path = os.path.join(root_path , 'vgg_feats.mat')
+      print "Saving features to disk %s"%(feature_path)
+      features_dict = {}
+      features_dict['feats'] = features
+      scipy.io.savemat(feature_path, features_dict)
+      
+       
+  else:
+      features_struct = scipy.io.loadmat(features_path)
+      features = features_struct['feats'] # this is a 4096 x N numpy array of features
   D,N = features.shape
 
   # iterate over all images and predict sentences
